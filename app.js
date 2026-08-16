@@ -23,7 +23,30 @@ const App = (function () {
   function $(sel) { return document.querySelector(sel); }
   function $all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
-  function activeBarang() { return (state.data.barang || []).filter(function (b) { return String(b.aktif) !== 'false' && String(b.aktif) !== 'FALSE'; }); }
+  // Mencegah tombol diklik berkali-kali (double submit) selama proses menyimpan berjalan.
+  function guardedClick(buttonEl, handler) {
+    buttonEl.addEventListener('click', function () {
+      if (buttonEl.disabled) return;
+      const original = buttonEl.textContent;
+      buttonEl.disabled = true;
+      buttonEl.style.opacity = '0.6';
+      buttonEl.textContent = 'Menyimpan...';
+      Promise.resolve()
+        .then(handler)
+        .catch(function (err) { console.error(err); })
+        .finally(function () {
+          buttonEl.disabled = false;
+          buttonEl.style.opacity = '1';
+          buttonEl.textContent = original;
+        });
+    });
+  }
+
+  function isActive(v) { return v !== false && String(v).toUpperCase() !== 'FALSE'; }
+  function activeBarang() { return (state.data.barang || []).filter(function (b) { return isActive(b.aktif); }); }
+  function inactiveBarang() { return (state.data.barang || []).filter(function (b) { return !isActive(b.aktif); }); }
+  function activePenitip() { return (state.data.penitip || []).filter(function (p) { return isActive(p.aktif); }); }
+  function inactivePenitip() { return (state.data.penitip || []).filter(function (p) { return !isActive(p.aktif); }); }
   function penitipById(id) { return (state.data.penitip || []).find(function (p) { return p.id_penitip === id; }); }
 
   // ---------- persist local cache ----------
@@ -72,8 +95,12 @@ const App = (function () {
     document.getElementById('onb-conn-status').textContent = msg;
   }
 
+  function isSettingTrue(v) {
+    return v === true || String(v).trim().toUpperCase() === 'TRUE';
+  }
+
   function decideEntryScreen() {
-    const setupDone = String(state.data.settings.setup_selesai) === 'TRUE';
+    const setupDone = isSettingTrue(state.data.settings.setup_selesai);
     if (setupDone) {
       document.getElementById('screen-onboarding').classList.add('hidden');
       document.getElementById('main-app').classList.remove('hidden');
@@ -181,7 +208,7 @@ const App = (function () {
     wrap.innerHTML = items.map(function (b) {
       return '<div class="opname-row" data-kode="' + b.kode_barang + '">' +
         '<div><div class="nm">' + b.nama_barang + '</div><div class="sub">Sistem: ' + b.stok_sistem + ' ' + (b.satuan || '') + ' · ' + (b.jenis === 'titipan' ? 'Titipan' : 'Milik sendiri') + '</div><div class="opname-preview" data-preview></div></div>' +
-        '<input type="number" placeholder="Stok fisik" class="opn-fisik" style="text-align:center;">' +
+        '<input type="number" inputmode="numeric" placeholder="Stok fisik" class="opn-fisik" style="text-align:center;">' +
         '<div style="text-align:right; font-size:11px; color:var(--ink-soft);">' + rp(b.harga_jual) + '/unit</div>' +
         '</div>';
     }).join('');
@@ -248,7 +275,7 @@ const App = (function () {
     state.data.saldoKas = Number(state.data.saldoKas) + totalPendapatan;
     persistCache();
 
-    Sync.queueAction('stokOpname', { tanggal: tanggal, keterangan: catatan, items: items }).then(function () {
+    return Sync.queueAction('stokOpname', { tanggal: tanggal, keterangan: catatan, items: items }).then(function () {
       toast('Hasil opname disimpan' + (Sync.isOnline() ? '' : ' (offline, menunggu sinkron)'));
       renderAll();
       switchScreen('dashboard');
@@ -259,9 +286,18 @@ const App = (function () {
   function renderRestokScreen() {
     document.getElementById('rst-tanggal').value = todayStr();
     const sel = document.getElementById('rst-barang');
-    sel.innerHTML = activeBarang().map(function (b) { return '<option value="' + b.kode_barang + '">' + b.nama_barang + ' (stok: ' + b.stok_sistem + ')</option>'; }).join('');
+    sel.innerHTML = activeBarang().map(function (b) { return '<option value="' + b.kode_barang + '">' + b.nama_barang + ' (stok: ' + b.stok_sistem + ')' + (b.jenis === 'titipan' ? ' · Titipan' : '') + '</option>'; }).join('');
+    toggleRestokFieldsForSelected();
     renderBarangListInto('rst-barang-list');
     renderPenitipListInto('rst-penitip-list');
+    document.getElementById('rst-jumlah').focus();
+  }
+  function toggleRestokFieldsForSelected() {
+    const kode = document.getElementById('rst-barang').value;
+    const b = (state.data.barang || []).find(function (x) { return x.kode_barang === kode; });
+    const isTitipan = b && b.jenis === 'titipan';
+    document.getElementById('rst-harga-wrap').classList.toggle('hidden', !!isTitipan);
+    document.getElementById('rst-sumber-wrap').classList.toggle('hidden', !!isTitipan);
   }
 
   function renderBarangListInto(elId) {
@@ -285,20 +321,21 @@ const App = (function () {
   function submitRestok() {
     const kode = document.getElementById('rst-barang').value;
     const jumlah = Number(document.getElementById('rst-jumlah').value) || 0;
-    const hargaInput = document.getElementById('rst-harga').value;
     const tanggal = document.getElementById('rst-tanggal').value || todayStr();
-    const sumber = document.getElementById('rst-sumber').value;
     const ket = document.getElementById('rst-ket').value;
-    if (!kode || jumlah <= 0) { toast('Pilih barang dan isi jumlah'); return; }
+    if (!kode || jumlah <= 0) { toast('Pilih barang dan isi jumlah'); return Promise.resolve(); }
 
     const b = state.data.barang.find(function (x) { return x.kode_barang === kode; });
+    const isTitipan = b.jenis === 'titipan';
+    const hargaInput = isTitipan ? '' : document.getElementById('rst-harga').value;
+    const sumber = isTitipan ? 'luar' : document.getElementById('rst-sumber').value;
     const hargaBeli = hargaInput !== '' ? Number(hargaInput) : Number(b.harga_beli || 0);
     b.stok_sistem = Number(b.stok_sistem || 0) + jumlah;
-    if (sumber === 'kas_kantin') state.data.saldoKas = Number(state.data.saldoKas) - hargaBeli * jumlah;
+    if (!isTitipan && sumber === 'kas_kantin') state.data.saldoKas = Number(state.data.saldoKas) - hargaBeli * jumlah;
     persistCache();
 
-    Sync.queueAction('restok', {
-      kode: kode, jumlah: jumlah, hargaBeli: hargaInput !== '' ? Number(hargaInput) : undefined,
+    return Sync.queueAction('restok', {
+      kode: kode, jumlah: jumlah, hargaBeli: (!isTitipan && hargaInput !== '') ? Number(hargaInput) : undefined,
       tanggal: tanggal, sumberDana: sumber, keterangan: ket
     }).then(function () {
       toast('Restok disimpan' + (Sync.isOnline() ? '' : ' (offline)'));
@@ -306,6 +343,7 @@ const App = (function () {
       document.getElementById('rst-harga').value = '';
       document.getElementById('rst-ket').value = '';
       renderAll();
+      renderRestokScreen();
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
 
@@ -318,7 +356,7 @@ const App = (function () {
     if (jumlah <= 0) { toast('Isi jumlah biaya'); return; }
     state.data.saldoKas = Number(state.data.saldoKas) - jumlah;
     persistCache();
-    Sync.queueAction('biayaOperasional', { tanggal: tanggal, kategori: kategori, jumlah: jumlah, keterangan: ket }).then(function () {
+    return Sync.queueAction('biayaOperasional', { tanggal: tanggal, kategori: kategori, jumlah: jumlah, keterangan: ket }).then(function () {
       toast('Biaya dicatat' + (Sync.isOnline() ? '' : ' (offline)'));
       document.getElementById('bia-jumlah').value = '';
       document.getElementById('bia-ket').value = '';
@@ -355,27 +393,68 @@ const App = (function () {
     state.data.hutangPenitip[idPenitip] = (state.data.hutangPenitip[idPenitip] || 0) - jumlah;
     state.data.saldoKas = Number(state.data.saldoKas) - jumlah;
     persistCache();
-    Sync.queueAction('bayarPenitip', { idPenitip: idPenitip, tanggal: tanggal, jumlah: jumlah, keterangan: ket }).then(function () {
+    return Sync.queueAction('bayarPenitip', { idPenitip: idPenitip, tanggal: tanggal, jumlah: jumlah, keterangan: ket }).then(function () {
       toast('Pembayaran dicatat' + (Sync.isOnline() ? '' : ' (offline)'));
       document.getElementById('byr-jumlah').value = '';
       renderAll();
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
 
-  // ---------- render: barang & penitip ----------
+  // ---------- render: barang & penitip (CRUD) ----------
   function renderBarangPenitipScreen() {
-    const el1 = document.getElementById('bp-barang-list');
-    const items = activeBarang();
-    el1.innerHTML = items.length ? items.map(function (b) {
-      return '<div class="list-item"><div><div class="li-title">' + b.nama_barang + '</div><div class="li-sub">' + b.kode_barang + ' · ' + (b.jenis === 'titipan' ? 'Titipan' : 'Milik sendiri') + ' · stok ' + b.stok_sistem + '</div></div><span class="li-val">' + rp(b.harga_jual) + '</span></div>';
-    }).join('') : '<div class="empty">Belum ada barang</div>';
+    renderBarangCrudList();
+    renderPenitipCrudList();
+  }
 
-    const el2 = document.getElementById('bp-penitip-list');
-    const pen = state.data.penitip || [];
-    el2.innerHTML = pen.length ? pen.map(function (p) {
-      const h = (state.data.hutangPenitip || {})[p.id_penitip] || 0;
-      return '<div class="list-item"><div><div class="li-title">' + p.nama + '</div><div class="li-sub">' + (p.kontak || '-') + '</div></div><span class="li-val">' + rp(h) + '</span></div>';
-    }).join('') : '<div class="empty">Belum ada penitip</div>';
+  function barangCrudRow(b, isInactive) {
+    const kodeEsc = b.kode_barang.replace(/"/g, '&quot;');
+    return '<div class="list-item"><div>' +
+      '<div class="li-title">' + b.nama_barang + (isInactive ? ' <span class="badge" style="background:var(--red-soft);color:var(--red);">Nonaktif</span>' : '') + '</div>' +
+      '<div class="li-sub">' + b.kode_barang + ' · ' + (b.jenis === 'titipan' ? 'Titipan' : 'Milik sendiri') + ' · stok ' + b.stok_sistem + ' · ' + rp(b.harga_jual) + '</div>' +
+      '</div><div style="display:flex; gap:6px;">' +
+      (isInactive
+        ? '<button class="btn btn-outline btn-sm" data-restore-barang="' + kodeEsc + '">Aktifkan</button>'
+        : '<button class="btn btn-ghost btn-sm" data-edit-barang="' + kodeEsc + '">Edit</button><button class="btn btn-danger btn-sm" data-del-barang="' + kodeEsc + '">Nonaktifkan</button>')
+      + '</div></div>';
+  }
+  function renderBarangCrudList() {
+    const el = document.getElementById('bp-barang-list');
+    const active = activeBarang(), inactive = inactiveBarang();
+    let html = active.length ? active.map(function (b) { return barangCrudRow(b, false); }).join('') : '<div class="empty">Belum ada barang</div>';
+    if (inactive.length) {
+      html += '<div class="section-title" style="margin:16px 0 4px;">Nonaktif <span class="tag">' + inactive.length + '</span></div>';
+      html += inactive.map(function (b) { return barangCrudRow(b, true); }).join('');
+    }
+    el.innerHTML = html;
+    $all('[data-edit-barang]').forEach(function (btn) { btn.addEventListener('click', function () { openModalBarang(state.data.barang.find(function (b) { return b.kode_barang === btn.dataset.editBarang; })); }); });
+    $all('[data-del-barang]').forEach(function (btn) { btn.addEventListener('click', function () { if (confirm('Nonaktifkan barang ini? Riwayat transaksi tetap tersimpan.')) toggleBarangAktif(btn.dataset.delBarang, false); }); });
+    $all('[data-restore-barang]').forEach(function (btn) { btn.addEventListener('click', function () { toggleBarangAktif(btn.dataset.restoreBarang, true); }); });
+  }
+
+  function penitipCrudRow(p, isInactive) {
+    const idEsc = p.id_penitip.replace(/"/g, '&quot;');
+    const h = (state.data.hutangPenitip || {})[p.id_penitip] || 0;
+    return '<div class="list-item"><div>' +
+      '<div class="li-title">' + p.nama + (isInactive ? ' <span class="badge" style="background:var(--red-soft);color:var(--red);">Nonaktif</span>' : '') + '</div>' +
+      '<div class="li-sub">' + (p.kontak || '-') + ' · hutang ' + rp(h) + '</div>' +
+      '</div><div style="display:flex; gap:6px;">' +
+      (isInactive
+        ? '<button class="btn btn-outline btn-sm" data-restore-penitip="' + idEsc + '">Aktifkan</button>'
+        : '<button class="btn btn-ghost btn-sm" data-edit-penitip="' + idEsc + '">Edit</button><button class="btn btn-danger btn-sm" data-del-penitip="' + idEsc + '">Nonaktifkan</button>')
+      + '</div></div>';
+  }
+  function renderPenitipCrudList() {
+    const el = document.getElementById('bp-penitip-list');
+    const active = activePenitip(), inactive = inactivePenitip();
+    let html = active.length ? active.map(function (p) { return penitipCrudRow(p, false); }).join('') : '<div class="empty">Belum ada penitip</div>';
+    if (inactive.length) {
+      html += '<div class="section-title" style="margin:16px 0 4px;">Nonaktif <span class="tag">' + inactive.length + '</span></div>';
+      html += inactive.map(function (p) { return penitipCrudRow(p, true); }).join('');
+    }
+    el.innerHTML = html;
+    $all('[data-edit-penitip]').forEach(function (btn) { btn.addEventListener('click', function () { openModalPenitip(penitipById(btn.dataset.editPenitip)); }); });
+    $all('[data-del-penitip]').forEach(function (btn) { btn.addEventListener('click', function () { if (confirm('Nonaktifkan penitip ini?')) togglePenitipAktif(btn.dataset.delPenitip, false); }); });
+    $all('[data-restore-penitip]').forEach(function (btn) { btn.addEventListener('click', function () { togglePenitipAktif(btn.dataset.restorePenitip, true); }); });
   }
 
   // ---------- render: pengaturan ----------
@@ -435,9 +514,8 @@ const App = (function () {
     div.innerHTML =
       '<div class="item-row-head"><span class="idx">Barang #' + onbItemCounter + '</span><button class="remove-x" data-remove>×</button></div>' +
       '<div class="row2"><div class="field"><label>Kode</label><input type="text" class="onb-i-kode" placeholder="SNK00' + onbItemCounter + '"></div><div class="field"><label>Nama Barang</label><input type="text" class="onb-i-nama"></div></div>' +
-      '<div class="field"><label>Jenis</label><select class="onb-i-jenis"><option value="milik_sendiri">Milik Sendiri</option><option value="titipan">Titipan</option></select></div>' +
-      '<div class="row2"><div class="field"><label>Harga Beli/Titip</label><input type="number" class="onb-i-hb"></div><div class="field"><label>Harga Jual</label><input type="number" class="onb-i-hj"></div></div>' +
-      '<div class="field"><label>Stok Awal</label><input type="number" class="onb-i-stok"></div>';
+      '<div class="row2"><div class="field"><label>Harga Beli</label><input type="number" inputmode="numeric" class="onb-i-hb"></div><div class="field"><label>Harga Jual</label><input type="number" inputmode="numeric" class="onb-i-hj"></div></div>' +
+      '<div class="field"><label>Stok Awal</label><input type="number" inputmode="numeric" class="onb-i-stok"></div>';
     wrap.appendChild(div);
     div.querySelector('[data-remove]').addEventListener('click', function () { div.remove(); updateOnbCount(); });
     updateOnbCount();
@@ -455,17 +533,17 @@ const App = (function () {
       return {
         kode: row.querySelector('.onb-i-kode').value,
         nama: row.querySelector('.onb-i-nama').value,
-        jenis: row.querySelector('.onb-i-jenis').value,
+        jenis: 'milik_sendiri',
         hargaBeli: Number(row.querySelector('.onb-i-hb').value) || 0,
         hargaJual: Number(row.querySelector('.onb-i-hj').value) || 0,
         stok: Number(row.querySelector('.onb-i-stok').value) || 0
       };
     }).filter(function (i) { return i.kode && i.nama; });
 
-    if (!Sync.isOnline()) { toast('Sambungkan internet untuk setup awal pertama kali'); return; }
+    if (!Sync.isOnline()) { toast('Sambungkan internet untuk setup awal pertama kali'); return Promise.resolve(); }
+    if (!items.length) { toast('Tambahkan minimal satu barang'); return Promise.resolve(); }
     toast('Menyimpan setup awal...');
-    Sync.fetchInitialData().catch(function () {}); // pastikan koneksi terbaca
-    fetch(Sync.getApiUrl(), {
+    return fetch(Sync.getApiUrl(), {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'setupModalAwal', deviceId: Sync.getDeviceId(), payload: { tanggal: tanggal, kasAwal: kasAwal, items: items } })
     }).then(function (r) { return r.json(); }).then(function (json) {
@@ -477,14 +555,54 @@ const App = (function () {
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
 
-  // ---------- modal barang / penitip ----------
-  function openModalBarang() {
+  // ---------- modal barang / penitip (mendukung mode Tambah & Edit) ----------
+  let editingBarangKode = null; // null = mode tambah, terisi = mode edit
+  let editingPenitipId = null;
+
+  function openModalBarang(existing) {
     document.getElementById('mb-penitip').innerHTML = (state.data.penitip || []).map(function (p) { return '<option value="' + p.id_penitip + '">' + p.nama + '</option>'; }).join('');
+    const title = document.querySelector('#modal-barang h3');
+    const kodeInput = document.getElementById('mb-kode');
+    if (existing) {
+      editingBarangKode = existing.kode_barang;
+      title.textContent = 'Edit Barang';
+      kodeInput.value = existing.kode_barang; kodeInput.disabled = true;
+      document.getElementById('mb-nama').value = existing.nama_barang || '';
+      document.getElementById('mb-kategori').value = existing.kategori || '';
+      document.getElementById('mb-satuan').value = existing.satuan || 'pcs';
+      document.getElementById('mb-jenis').value = existing.jenis || 'milik_sendiri';
+      document.getElementById('mb-penitip-wrap').classList.toggle('hidden', existing.jenis !== 'titipan');
+      document.getElementById('mb-harga-beli-wrap').classList.toggle('hidden', existing.jenis === 'titipan');
+      document.getElementById('mb-penitip').value = existing.id_penitip || '';
+      document.getElementById('mb-harga-beli').value = existing.harga_beli || '';
+      document.getElementById('mb-harga-jual').value = existing.harga_jual || '';
+      document.getElementById('mb-stok').value = existing.stok_sistem || '';
+      document.getElementById('mb-stok').disabled = true;
+      document.getElementById('mb-stok-wrap-label').textContent = 'Stok Saat Ini';
+      document.getElementById('mb-stok-hint').textContent = 'Ubah stok lewat menu Restok atau Stok Opname, bukan di sini.';
+      document.getElementById('mb-stok-min').value = existing.stok_minimum || '';
+    } else {
+      editingBarangKode = null;
+      title.textContent = 'Tambah Barang';
+      kodeInput.disabled = false;
+      document.getElementById('mb-stok').disabled = false;
+      document.getElementById('mb-stok-wrap-label').textContent = 'Stok Awal';
+      document.getElementById('mb-stok-hint').textContent = '';
+      document.getElementById('mb-harga-beli-wrap').classList.remove('hidden');
+      clearModalBarang();
+    }
     document.getElementById('modal-barang').classList.remove('hidden');
   }
-  function closeModalBarang() { document.getElementById('modal-barang').classList.add('hidden'); }
+  function closeModalBarang() { document.getElementById('modal-barang').classList.add('hidden'); editingBarangKode = null; document.getElementById('mb-kode').disabled = false; }
   function saveModalBarang() {
     const jenis = document.getElementById('mb-jenis').value;
+    if (jenis === 'titipan' && !activePenitip().length) {
+      toast('Tambahkan data Penitip dulu sebelum membuat barang titipan');
+      document.getElementById('mb-jenis').value = 'milik_sendiri';
+      document.getElementById('mb-penitip-wrap').classList.add('hidden');
+      document.getElementById('mb-harga-beli-wrap').classList.remove('hidden');
+      return Promise.resolve();
+    }
     const payload = {
       kode: document.getElementById('mb-kode').value,
       nama: document.getElementById('mb-nama').value,
@@ -492,29 +610,72 @@ const App = (function () {
       satuan: document.getElementById('mb-satuan').value || 'pcs',
       jenis: jenis,
       idPenitip: jenis === 'titipan' ? document.getElementById('mb-penitip').value : '',
-      hargaBeli: Number(document.getElementById('mb-harga-beli').value) || 0,
+      hargaBeli: jenis === 'titipan' ? 0 : (Number(document.getElementById('mb-harga-beli').value) || 0),
       hargaJual: Number(document.getElementById('mb-harga-jual').value) || 0,
       stok: Number(document.getElementById('mb-stok').value) || 0,
       stokMinimum: Number(document.getElementById('mb-stok-min').value) || 0
     };
-    if (!payload.kode || !payload.nama) { toast('Isi kode dan nama barang'); return; }
+    if (!payload.kode || !payload.nama) { toast('Isi kode dan nama barang'); return Promise.resolve(); }
+    if (jenis === 'titipan' && !payload.idPenitip) { toast('Pilih penitip untuk barang titipan ini'); return Promise.resolve(); }
+
+    if (editingBarangKode) {
+      const b = state.data.barang.find(function (x) { return x.kode_barang === editingBarangKode; });
+      if (b) {
+        b.nama_barang = payload.nama; b.kategori = payload.kategori; b.jenis = payload.jenis; b.id_penitip = payload.idPenitip;
+        b.harga_beli = payload.hargaBeli; b.harga_jual = payload.hargaJual; b.satuan = payload.satuan; b.stok_minimum = payload.stokMinimum;
+      }
+      persistCache();
+      return Sync.queueAction('updateBarang', payload).then(function () {
+        toast('Barang diperbarui');
+        closeModalBarang(); renderAll();
+      }).catch(function (err) { toast('Gagal: ' + err.message); });
+    }
+
+    if ((state.data.barang || []).some(function (b) { return b.kode_barang === payload.kode; })) { toast('Kode barang sudah dipakai'); return Promise.resolve(); }
     state.data.barang.push({
       kode_barang: payload.kode, nama_barang: payload.nama, kategori: payload.kategori, jenis: payload.jenis,
       id_penitip: payload.idPenitip, harga_beli: payload.hargaBeli, harga_jual: payload.hargaJual,
       satuan: payload.satuan, stok_sistem: payload.stok, stok_minimum: payload.stokMinimum, aktif: true
     });
     persistCache();
-    Sync.queueAction('addBarang', payload).then(function () {
+    return Sync.queueAction('addBarang', payload).then(function () {
       toast('Barang ditambahkan');
       closeModalBarang(); clearModalBarang(); renderAll();
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
   function clearModalBarang() {
-    ['mb-kode', 'mb-nama', 'mb-kategori', 'mb-satuan', 'mb-harga-beli', 'mb-harga-jual', 'mb-stok', 'mb-stok-min'].forEach(function (id) { document.getElementById(id).value = ''; });
+    ['mb-kode', 'mb-nama', 'mb-kategori', 'mb-harga-beli', 'mb-harga-jual', 'mb-stok', 'mb-stok-min'].forEach(function (id) { document.getElementById(id).value = ''; });
+    document.getElementById('mb-satuan').value = 'pcs';
+    document.getElementById('mb-jenis').value = 'milik_sendiri';
+    document.getElementById('mb-penitip-wrap').classList.add('hidden');
+  }
+  function toggleBarangAktif(kode, aktifBaru) {
+    const b = state.data.barang.find(function (x) { return x.kode_barang === kode; });
+    if (b) b.aktif = aktifBaru;
+    persistCache();
+    Sync.queueAction(aktifBaru ? 'restoreBarang' : 'deleteBarang', { kode: kode }).then(function () {
+      toast(aktifBaru ? 'Barang diaktifkan kembali' : 'Barang dinonaktifkan');
+      renderAll();
+    }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
 
-  function openModalPenitip() { document.getElementById('modal-penitip').classList.remove('hidden'); }
-  function closeModalPenitip() { document.getElementById('modal-penitip').classList.add('hidden'); }
+  function openModalPenitip(existing) {
+    const title = document.querySelector('#modal-penitip h3');
+    if (existing) {
+      editingPenitipId = existing.id_penitip;
+      title.textContent = 'Edit Penitip';
+      document.getElementById('mp-nama').value = existing.nama || '';
+      document.getElementById('mp-kontak').value = existing.kontak || '';
+      document.getElementById('mp-rekening').value = existing.no_rekening || '';
+      document.getElementById('mp-catatan').value = existing.catatan || '';
+    } else {
+      editingPenitipId = null;
+      title.textContent = 'Tambah Penitip';
+      ['mp-nama', 'mp-kontak', 'mp-rekening', 'mp-catatan'].forEach(function (id) { document.getElementById(id).value = ''; });
+    }
+    document.getElementById('modal-penitip').classList.remove('hidden');
+  }
+  function closeModalPenitip() { document.getElementById('modal-penitip').classList.add('hidden'); editingPenitipId = null; }
   function saveModalPenitip() {
     const payload = {
       nama: document.getElementById('mp-nama').value,
@@ -522,14 +683,34 @@ const App = (function () {
       noRekening: document.getElementById('mp-rekening').value,
       catatan: document.getElementById('mp-catatan').value
     };
-    if (!payload.nama) { toast('Isi nama penitip'); return; }
+    if (!payload.nama) { toast('Isi nama penitip'); return Promise.resolve(); }
+
+    if (editingPenitipId) {
+      payload.id = editingPenitipId;
+      const p = penitipById(editingPenitipId);
+      if (p) { p.nama = payload.nama; p.kontak = payload.kontak; p.no_rekening = payload.noRekening; p.catatan = payload.catatan; }
+      persistCache();
+      return Sync.queueAction('updatePenitip', payload).then(function () {
+        toast('Penitip diperbarui');
+        closeModalPenitip(); renderAll();
+      }).catch(function (err) { toast('Gagal: ' + err.message); });
+    }
+
     const tempId = 'PTP-TEMP-' + Date.now();
     state.data.penitip.push({ id_penitip: tempId, nama: payload.nama, kontak: payload.kontak, no_rekening: payload.noRekening, catatan: payload.catatan, aktif: true });
     persistCache();
-    Sync.queueAction('addPenitip', payload).then(function () {
+    return Sync.queueAction('addPenitip', payload).then(function () {
       toast('Penitip ditambahkan');
       closeModalPenitip();
-      ['mp-nama', 'mp-kontak', 'mp-rekening', 'mp-catatan'].forEach(function (id) { document.getElementById(id).value = ''; });
+      renderAll();
+    }).catch(function (err) { toast('Gagal: ' + err.message); });
+  }
+  function togglePenitipAktif(id, aktifBaru) {
+    const p = penitipById(id);
+    if (p) p.aktif = aktifBaru;
+    persistCache();
+    Sync.queueAction(aktifBaru ? 'restorePenitip' : 'deletePenitip', { id: id }).then(function () {
+      toast(aktifBaru ? 'Penitip diaktifkan kembali' : 'Penitip dinonaktifkan');
       renderAll();
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
@@ -540,7 +721,7 @@ const App = (function () {
     state.data.settings.nama_kantin = payload.nama_kantin;
     state.data.settings.fee_default_persen = payload.fee_default_persen;
     persistCache();
-    Sync.queueAction('updateSettings', payload).then(function () { toast('Pengaturan disimpan'); renderAll(); }).catch(function (err) { toast('Gagal: ' + err.message); });
+    return Sync.queueAction('updateSettings', payload).then(function () { toast('Pengaturan disimpan'); renderAll(); }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
 
   // ---------- render all ----------
@@ -554,7 +735,6 @@ const App = (function () {
     $all('[data-nav]').forEach(function (el) { el.addEventListener('click', function () { switchScreen(el.dataset.nav === 'barangpenitip' ? 'barangpenitip' : el.dataset.nav); }); });
 
     document.getElementById('onb-add-item').addEventListener('click', addOnbItem);
-    document.getElementById('onb-submit').addEventListener('click', submitOnboarding);
     document.getElementById('onb-test-connection').addEventListener('click', function () {
       const url = document.getElementById('onb-api-url').value.trim();
       if (url) Sync.setApiUrl(url);
@@ -565,11 +745,18 @@ const App = (function () {
     });
     addOnbItem();
 
-    document.getElementById('opn-submit').addEventListener('click', submitOpname);
-    document.getElementById('rst-submit').addEventListener('click', submitRestok);
-    document.getElementById('bia-submit').addEventListener('click', submitBiaya);
-    document.getElementById('byr-submit').addEventListener('click', submitBayar);
-    document.getElementById('set-save').addEventListener('click', saveSettings);
+    guardedClick(document.getElementById('opn-submit'), submitOpname);
+    guardedClick(document.getElementById('rst-submit'), submitRestok);
+    document.getElementById('rst-barang').addEventListener('change', toggleRestokFieldsForSelected);
+    guardedClick(document.getElementById('bia-submit'), submitBiaya);
+    guardedClick(document.getElementById('byr-submit'), submitBayar);
+    document.getElementById('bia-jumlah').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('bia-submit').click(); } });
+    document.getElementById('byr-jumlah').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('byr-submit').click(); } });
+    document.getElementById('rst-jumlah').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('rst-submit').click(); } });
+    guardedClick(document.getElementById('set-save'), saveSettings);
+    guardedClick(document.getElementById('onb-submit'), submitOnboarding);
+    guardedClick(document.getElementById('mb-save'), saveModalBarang);
+    guardedClick(document.getElementById('mp-save'), saveModalPenitip);
     document.getElementById('set-save-url').addEventListener('click', function () {
       Sync.setApiUrl(document.getElementById('set-api-url').value.trim());
       toast('URL disimpan');
@@ -579,16 +766,30 @@ const App = (function () {
       Sync.fetchInitialData().then(function (d) { state.data = d; renderAll(); toast('Data diperbarui'); }).catch(function (err) { toast('Gagal: ' + err.message); });
     });
 
-    document.getElementById('rst-open-add-barang').addEventListener('click', openModalBarang);
-    document.getElementById('rst-open-add-penitip').addEventListener('click', openModalPenitip);
-    document.getElementById('bp-add-barang').addEventListener('click', openModalBarang);
-    document.getElementById('bp-add-penitip').addEventListener('click', openModalPenitip);
-    document.getElementById('mb-save').addEventListener('click', saveModalBarang);
+    document.getElementById('rst-open-add-barang').addEventListener('click', function () { openModalBarang(); });
+    document.getElementById('rst-open-add-penitip').addEventListener('click', function () { openModalPenitip(); });
+    document.getElementById('bp-add-barang').addEventListener('click', function () { openModalBarang(); });
+    document.getElementById('bp-add-penitip').addEventListener('click', function () { openModalPenitip(); });
     document.getElementById('mb-cancel').addEventListener('click', closeModalBarang);
-    document.getElementById('mp-save').addEventListener('click', saveModalPenitip);
     document.getElementById('mp-cancel').addEventListener('click', closeModalPenitip);
     document.getElementById('mb-jenis').addEventListener('change', function () {
-      document.getElementById('mb-penitip-wrap').classList.toggle('hidden', this.value !== 'titipan');
+      const isTitipan = this.value === 'titipan';
+      if (isTitipan && !activePenitip().length) {
+        toast('Tambahkan data Penitip dulu sebelum membuat barang titipan');
+        this.value = 'milik_sendiri';
+        return;
+      }
+      document.getElementById('mb-penitip-wrap').classList.toggle('hidden', !isTitipan);
+      document.getElementById('mb-harga-beli-wrap').classList.toggle('hidden', isTitipan);
+    });
+    document.getElementById('mb-kode-auto').addEventListener('click', function () {
+      const nama = document.getElementById('mb-nama').value.trim();
+      if (!nama) { toast('Isi nama barang dulu'); return; }
+      const initials = nama.toUpperCase().replace(/[^A-Z0-9 ]/g, '').split(' ').filter(Boolean).map(function (w) { return w.slice(0, 3); }).join('').slice(0, 6) || 'BRG';
+      let n = 1, kode;
+      const existingKodes = (state.data.barang || []).map(function (b) { return b.kode_barang; });
+      do { kode = initials + String(n).padStart(2, '0'); n++; } while (existingKodes.indexOf(kode) !== -1 && n < 100);
+      document.getElementById('mb-kode').value = kode;
     });
 
     $all('[data-mtab]').forEach(function (btn) {

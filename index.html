@@ -39,11 +39,12 @@
       </div>
       <div class="field">
         <label>Uang Kas Awal (Rp)</label>
-        <input type="number" id="onb-kas-awal" placeholder="0">
+        <input type="number" inputmode="numeric" id="onb-kas-awal" placeholder="0">
       </div>
     </div>
 
     <div class="section-title">Stok Barang Awal <span class="tag" id="onb-item-count">0 barang</span></div>
+    <div class="hint" style="padding:0 4px 6px;">Isi barang milik kantin sendiri dulu. Barang titipan bisa ditambahkan setelah aplikasi jalan, lewat menu Kelola Barang &amp; Penitip (perlu data penitip lebih dulu).</div>
     <div id="onb-items"></div>
     <button class="btn btn-ghost" id="onb-add-item">+ Tambah Barang</button>
 
@@ -137,18 +138,18 @@
         <div class="row2">
           <div class="field">
             <label>Jumlah</label>
-            <input type="number" id="rst-jumlah" placeholder="0">
+            <input type="number" inputmode="numeric" id="rst-jumlah" placeholder="0">
           </div>
-          <div class="field">
+          <div class="field" id="rst-harga-wrap">
             <label>Harga Beli /unit (opsional)</label>
-            <input type="number" id="rst-harga" placeholder="ikuti harga terakhir">
+            <input type="number" inputmode="numeric" id="rst-harga" placeholder="ikuti harga terakhir">
           </div>
         </div>
         <div class="field">
           <label>Tanggal</label>
           <input type="date" id="rst-tanggal">
         </div>
-        <div class="field">
+        <div class="field" id="rst-sumber-wrap">
           <label>Sumber Dana</label>
           <select id="rst-sumber">
             <option value="kas_kantin">Kas Kantin (otomatis tercatat sebagai pengeluaran)</option>
@@ -225,7 +226,7 @@
             <option value="lain-lain">Lain-lain</option>
           </select>
         </div>
-        <div class="field"><label>Jumlah (Rp)</label><input type="number" id="bia-jumlah" placeholder="0"></div>
+        <div class="field"><label>Jumlah (Rp)</label><input type="number" inputmode="numeric" id="bia-jumlah" placeholder="0"></div>
         <div class="field"><label>Keterangan</label><input type="text" id="bia-ket" placeholder="opsional"></div>
         <button class="btn btn-primary" id="bia-submit">Simpan Biaya</button>
       </div>
@@ -242,7 +243,7 @@
         </div>
         <div class="field hint" id="byr-hutang-info">Sisa hutang: Rp 0</div>
         <div class="field"><label>Tanggal</label><input type="date" id="byr-tanggal"></div>
-        <div class="field"><label>Jumlah Dibayar (Rp)</label><input type="number" id="byr-jumlah" placeholder="0"></div>
+        <div class="field"><label>Jumlah Dibayar (Rp)</label><input type="number" inputmode="numeric" id="byr-jumlah" placeholder="0"></div>
         <div class="field"><label>Keterangan</label><input type="text" id="byr-ket" placeholder="opsional"></div>
         <button class="btn btn-primary" id="byr-submit">Simpan Pembayaran</button>
       </div>
@@ -273,7 +274,7 @@
       <div class="section-title">Pengaturan Umum</div>
       <div class="card">
         <div class="field"><label>Nama Kantin</label><input type="text" id="set-nama"></div>
-        <div class="field"><label>Fee Kantin dari Barang Titipan (%)</label><input type="number" id="set-fee"></div>
+        <div class="field"><label>Fee Kantin dari Barang Titipan (%)</label><input type="number" inputmode="numeric" id="set-fee"></div>
         <button class="btn btn-primary" id="set-save">Simpan Pengaturan</button>
       </div>
 
@@ -307,7 +308,13 @@
   <div class="modal-backdrop hidden" id="modal-barang">
     <div class="modal-sheet">
       <h3 class="display">Tambah Barang</h3>
-      <div class="field"><label>Kode Barang</label><input type="text" id="mb-kode" placeholder="mis. SNK001"></div>
+      <div class="field">
+        <label>Kode Barang</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="mb-kode" placeholder="mis. SNK001" style="flex:1;">
+          <button type="button" class="btn btn-outline btn-sm" id="mb-kode-auto" style="width:auto; flex:none;">Auto</button>
+        </div>
+      </div>
       <div class="field"><label>Nama Barang</label><input type="text" id="mb-nama"></div>
       <div class="row2">
         <div class="field"><label>Kategori</label><input type="text" id="mb-kategori" placeholder="Snack, Minuman, dst"></div>
@@ -325,12 +332,12 @@
         <select id="mb-penitip"></select>
       </div>
       <div class="row2">
-        <div class="field"><label>Harga Beli/Titip (Rp)</label><input type="number" id="mb-harga-beli"></div>
-        <div class="field"><label>Harga Jual (Rp)</label><input type="number" id="mb-harga-jual"></div>
+        <div class="field" id="mb-harga-beli-wrap"><label id="mb-harga-beli-label">Harga Beli (Rp)</label><input type="number" inputmode="numeric" id="mb-harga-beli"></div>
+        <div class="field"><label>Harga Jual (Rp)</label><input type="number" inputmode="numeric" id="mb-harga-jual"></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Stok Awal</label><input type="number" id="mb-stok"></div>
-        <div class="field"><label>Stok Minimum (alert)</label><input type="number" id="mb-stok-min" placeholder="0"></div>
+        <div class="field"><label id="mb-stok-wrap-label">Stok Awal</label><input type="number" inputmode="numeric" id="mb-stok"><div class="hint" id="mb-stok-hint"></div></div>
+        <div class="field"><label>Stok Minimum (alert)</label><input type="number" inputmode="numeric" id="mb-stok-min" placeholder="0"></div>
       </div>
       <button class="btn btn-primary" id="mb-save">Simpan Barang</button>
       <button class="btn btn-ghost" id="mb-cancel" style="margin-top:8px;">Batal</button>
