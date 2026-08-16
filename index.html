@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E-Kantin Cerdas</title>
+<meta name="theme-color" content="#0B3B26">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%230B3B26%22/><text x=%2250%22 y=%2266%22 font-size=%2255%22 text-anchor=%22middle%22 fill=%22%23B5852B%22 font-family=%22Georgia%22>K</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===================== ONBOARDING ===================== -->
+  <div id="screen-onboarding" class="screen hidden">
+    <div class="onb-hero">
+      <div class="mark">K</div>
+      <h1 class="display">E-Kantin Cerdas</h1>
+      <p>Kelola keuangan kantin sekolah — kas, stok, barang titipan, hingga laporan — otomatis tersinkron ke Google Spreadsheet, tetap bisa dipakai walau tanpa internet.</p>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <label>URL Web App (Apps Script)</label>
+        <input type="text" id="onb-api-url" placeholder="https://script.google.com/macros/s/.../exec">
+        <div class="hint">Salin dari hasil Deploy &gt; Web app di Apps Script.</div>
+      </div>
+      <button class="btn btn-outline" id="onb-test-connection">Cek Koneksi</button>
+      <div id="onb-conn-status" class="hint" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="section-title">Modal Awal <span class="tag">Wajib diisi sekali</span></div>
+    <div class="card">
+      <div class="field">
+        <label>Tanggal Mulai</label>
+        <input type="date" id="onb-tanggal">
+      </div>
+      <div class="field">
+        <label>Uang Kas Awal (Rp)</label>
+        <input type="number" id="onb-kas-awal" placeholder="0">
+      </div>
+    </div>
+
+    <div class="section-title">Stok Barang Awal <span class="tag" id="onb-item-count">0 barang</span></div>
+    <div id="onb-items"></div>
+    <button class="btn btn-ghost" id="onb-add-item">+ Tambah Barang</button>
+
+    <div style="margin-top:20px;">
+      <button class="btn btn-primary" id="onb-submit">Simpan &amp; Mulai Gunakan Aplikasi</button>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="main-app" class="hidden">
+
+    <div class="topbar">
+      <div class="brand">
+        <div class="mark">K</div>
+        <div>
+          <div class="name" id="app-kantin-name">E-Kantin Cerdas</div>
+          <div class="sub">SD IT Abu Hurairah Sembalun</div>
+        </div>
+      </div>
+      <div class="status-row">
+        <span class="pill" id="pill-online"><span class="dot"></span><span id="pill-online-text">Memeriksa...</span></span>
+        <span class="pill pending hidden" id="pill-pending">0 menunggu sinkron</span>
+      </div>
+    </div>
+
+    <!-- ---------- DASHBOARD ---------- -->
+    <div class="screen" data-screen="dashboard">
+      <div class="stat-grid">
+        <div class="stat-card accent wide">
+          <div class="label">Saldo Kas Kantin</div>
+          <div class="value" id="db-saldo-kas">Rp 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Laba Bersih (30 hr)</div>
+          <div class="value" id="db-laba">Rp 0</div>
+        </div>
+        <div class="stat-card warn">
+          <div class="label">Hutang ke Penitip</div>
+          <div class="value" id="db-hutang">Rp 0</div>
+        </div>
+      </div>
+
+      <div class="section-title">Aksi Cepat</div>
+      <div class="qa-grid">
+        <div class="qa-btn" data-nav="opname"><span class="ic">🧮</span>Opname</div>
+        <div class="qa-btn" data-nav="restok"><span class="ic">📦</span>Restok</div>
+        <div class="qa-btn" data-nav="biaya"><span class="ic">🧾</span>Biaya</div>
+        <div class="qa-btn" data-nav="bayar"><span class="ic">🤝</span>Bayar Titip</div>
+      </div>
+
+      <div class="section-title">Barang Perlu Perhatian <span class="tag">Stok menipis</span></div>
+      <div class="card"><div id="db-stok-menipis" class="empty">Memuat data...</div></div>
+
+      <div class="section-title">Aktivitas Terbaru</div>
+      <div class="card"><div id="db-aktivitas" class="empty">Belum ada aktivitas</div></div>
+    </div>
+
+    <!-- ---------- STOK OPNAME ---------- -->
+    <div class="screen hidden" data-screen="opname">
+      <div class="section-title">Perhitungan Stok (Opname)</div>
+      <div class="card">
+        <div class="field">
+          <label>Tanggal Opname</label>
+          <input type="date" id="opn-tanggal">
+        </div>
+        <div class="field">
+          <label>Catatan (opsional)</label>
+          <input type="text" id="opn-catatan" placeholder="mis. opname mingguan">
+        </div>
+      </div>
+      <div class="section-title">Input Stok Fisik Sekarang</div>
+      <div class="card"><div id="opn-items"></div></div>
+      <div class="card" id="opn-summary" style="margin-top:12px;">
+        <div class="list-item"><span class="li-title">Perkiraan Pendapatan Kotor</span><span class="li-val" id="opn-sum-pendapatan">Rp 0</span></div>
+        <div class="list-item"><span class="li-title">Perkiraan Laba Kantin</span><span class="li-val" id="opn-sum-laba">Rp 0</span></div>
+        <div class="list-item"><span class="li-title">Perkiraan Dana ke Penitip</span><span class="li-val" id="opn-sum-titip">Rp 0</span></div>
+      </div>
+      <div style="margin-top:14px;">
+        <button class="btn btn-primary" id="opn-submit">Simpan Hasil Opname</button>
+      </div>
+    </div>
+
+    <!-- ---------- RESTOK ---------- -->
+    <div class="screen hidden" data-screen="restok">
+      <div class="section-title">Restok Barang</div>
+      <div class="card">
+        <div class="field">
+          <label>Pilih Barang</label>
+          <select id="rst-barang"></select>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Jumlah</label>
+            <input type="number" id="rst-jumlah" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Harga Beli /unit (opsional)</label>
+            <input type="number" id="rst-harga" placeholder="ikuti harga terakhir">
+          </div>
+        </div>
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="rst-tanggal">
+        </div>
+        <div class="field">
+          <label>Sumber Dana</label>
+          <select id="rst-sumber">
+            <option value="kas_kantin">Kas Kantin (otomatis tercatat sebagai pengeluaran)</option>
+            <option value="luar">Dana Luar / Tidak Mengurangi Kas</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Keterangan (opsional)</label>
+          <input type="text" id="rst-ket" placeholder="mis. beli dari toko Bu Sari">
+        </div>
+        <button class="btn btn-primary" id="rst-submit">Simpan Restok</button>
+      </div>
+
+      <div class="section-title">Barang &amp; Penitip</div>
+      <div class="tabbar">
+        <button class="active" data-mtab="barang">Daftar Barang</button>
+        <button data-mtab="penitip">Daftar Penitip</button>
+      </div>
+      <div class="card" id="rst-barang-list"></div>
+      <div class="card hidden" id="rst-penitip-list"></div>
+      <div style="margin-top:12px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <button class="btn btn-outline btn-sm" id="rst-open-add-barang" style="width:100%;">+ Barang Baru</button>
+        <button class="btn btn-outline btn-sm" id="rst-open-add-penitip" style="width:100%;">+ Penitip Baru</button>
+      </div>
+    </div>
+
+    <!-- ---------- LAPORAN ---------- -->
+    <div class="screen hidden" data-screen="laporan">
+      <div class="section-title">Laporan</div>
+      <div class="card">
+        <div class="row2">
+          <div class="field"><label>Dari Tanggal</label><input type="date" id="lap-dari"></div>
+          <div class="field"><label>Sampai Tanggal</label><input type="date" id="lap-sampai"></div>
+        </div>
+        <button class="btn btn-outline" id="lap-refresh">Tampilkan (butuh koneksi internet)</button>
+      </div>
+      <div class="tabbar">
+        <button class="active" data-ltab="labarugi">Laba Rugi</button>
+        <button data-ltab="arus_kas">Arus Kas</button>
+        <button data-ltab="hutang_penitip">Hutang Penitip</button>
+        <button data-ltab="stok">Nilai Stok</button>
+      </div>
+      <div class="card" id="lap-content"><div class="empty">Pilih periode lalu tekan Tampilkan.</div></div>
+    </div>
+
+    <!-- ---------- LAINNYA (menu) ---------- -->
+    <div class="screen hidden" data-screen="lainnya">
+      <div class="section-title">Menu Lainnya</div>
+      <div class="card">
+        <div class="list-item" data-nav="biaya" style="cursor:pointer;"><span class="li-title">🧾 Biaya Operasional</span><span>›</span></div>
+        <div class="list-item" data-nav="bayar" style="cursor:pointer;"><span class="li-title">🤝 Bayar Penitip</span><span>›</span></div>
+        <div class="list-item" data-nav="barangpenitip" style="cursor:pointer;"><span class="li-title">📋 Kelola Barang &amp; Penitip</span><span>›</span></div>
+        <div class="list-item" data-nav="pengaturan" style="cursor:pointer;"><span class="li-title">⚙️ Pengaturan</span><span>›</span></div>
+      </div>
+      <div class="section-title">Tentang</div>
+      <div class="card">
+        <p style="font-size:12.5px; color:var(--ink-soft); margin:0;">E-Kantin Cerdas v<span id="about-version"></span> — dibuat untuk SD IT Abu Hurairah Sembalun. Database: Google Spreadsheet. Bekerja offline, sinkron otomatis saat online.</p>
+      </div>
+    </div>
+
+    <!-- ---------- BIAYA OPERASIONAL ---------- -->
+    <div class="screen hidden" data-screen="biaya">
+      <div class="section-title">Catat Biaya Operasional</div>
+      <div class="card">
+        <div class="field"><label>Tanggal</label><input type="date" id="bia-tanggal"></div>
+        <div class="field">
+          <label>Kategori</label>
+          <select id="bia-kategori">
+            <option value="listrik">Listrik</option>
+            <option value="plastik_kemasan">Plastik / Kemasan</option>
+            <option value="kebersihan">Kebersihan</option>
+            <option value="transport">Transport Belanja</option>
+            <option value="perawatan">Perawatan Alat</option>
+            <option value="lain-lain">Lain-lain</option>
+          </select>
+        </div>
+        <div class="field"><label>Jumlah (Rp)</label><input type="number" id="bia-jumlah" placeholder="0"></div>
+        <div class="field"><label>Keterangan</label><input type="text" id="bia-ket" placeholder="opsional"></div>
+        <button class="btn btn-primary" id="bia-submit">Simpan Biaya</button>
+      </div>
+      <div class="hint" style="padding:0 4px;">Biaya ini otomatis mengurangi kas kantin dan laba bersih.</div>
+    </div>
+
+    <!-- ---------- BAYAR PENITIP ---------- -->
+    <div class="screen hidden" data-screen="bayar">
+      <div class="section-title">Bayar ke Penitip</div>
+      <div class="card">
+        <div class="field">
+          <label>Pilih Penitip</label>
+          <select id="byr-penitip"></select>
+        </div>
+        <div class="field hint" id="byr-hutang-info">Sisa hutang: Rp 0</div>
+        <div class="field"><label>Tanggal</label><input type="date" id="byr-tanggal"></div>
+        <div class="field"><label>Jumlah Dibayar (Rp)</label><input type="number" id="byr-jumlah" placeholder="0"></div>
+        <div class="field"><label>Keterangan</label><input type="text" id="byr-ket" placeholder="opsional"></div>
+        <button class="btn btn-primary" id="byr-submit">Simpan Pembayaran</button>
+      </div>
+
+      <div class="section-title">Ringkasan Hutang per Penitip</div>
+      <div class="card" id="byr-list-hutang"><div class="empty">Memuat...</div></div>
+    </div>
+
+    <!-- ---------- BARANG & PENITIP ---------- -->
+    <div class="screen hidden" data-screen="barangpenitip">
+      <div class="tabbar">
+        <button class="active" data-btab="barang">Barang</button>
+        <button data-btab="penitip">Penitip</button>
+      </div>
+
+      <div id="bp-barang">
+        <button class="btn btn-outline" id="bp-add-barang">+ Tambah Barang</button>
+        <div class="card" id="bp-barang-list" style="margin-top:12px;"></div>
+      </div>
+      <div id="bp-penitip" class="hidden">
+        <button class="btn btn-outline" id="bp-add-penitip">+ Tambah Penitip</button>
+        <div class="card" id="bp-penitip-list" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+    <!-- ---------- PENGATURAN ---------- -->
+    <div class="screen hidden" data-screen="pengaturan">
+      <div class="section-title">Pengaturan Umum</div>
+      <div class="card">
+        <div class="field"><label>Nama Kantin</label><input type="text" id="set-nama"></div>
+        <div class="field"><label>Fee Kantin dari Barang Titipan (%)</label><input type="number" id="set-fee"></div>
+        <button class="btn btn-primary" id="set-save">Simpan Pengaturan</button>
+      </div>
+
+      <div class="section-title">Koneksi</div>
+      <div class="card">
+        <div class="field"><label>URL Web App (Apps Script)</label><input type="text" id="set-api-url"></div>
+        <button class="btn btn-outline" id="set-save-url">Simpan URL</button>
+        <button class="btn btn-ghost" id="set-sync-now" style="margin-top:10px;">🔄 Sinkronkan Sekarang</button>
+      </div>
+
+      <div class="section-title">Data</div>
+      <div class="card">
+        <button class="btn btn-ghost" id="set-refresh-cache">Perbarui Data dari Server</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== BOTTOM NAV ===================== -->
+  <div class="bottomnav hidden" id="bottomnav">
+    <div class="bottomnav-inner">
+      <button class="nav-btn active" data-nav="dashboard"><span class="ic">🏠</span>Beranda</button>
+      <button class="nav-btn" data-nav="opname"><span class="ic">🧮</span>Opname</button>
+      <button class="nav-btn" data-nav="restok"><span class="ic">📦</span>Restok</button>
+      <button class="nav-btn" data-nav="laporan"><span class="ic">📊</span>Laporan</button>
+      <button class="nav-btn" data-nav="lainnya"><span class="ic">☰</span>Lainnya</button>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL: tambah barang / penitip ===================== -->
+  <div class="modal-backdrop hidden" id="modal-barang">
+    <div class="modal-sheet">
+      <h3 class="display">Tambah Barang</h3>
+      <div class="field"><label>Kode Barang</label><input type="text" id="mb-kode" placeholder="mis. SNK001"></div>
+      <div class="field"><label>Nama Barang</label><input type="text" id="mb-nama"></div>
+      <div class="row2">
+        <div class="field"><label>Kategori</label><input type="text" id="mb-kategori" placeholder="Snack, Minuman, dst"></div>
+        <div class="field"><label>Satuan</label><input type="text" id="mb-satuan" placeholder="pcs"></div>
+      </div>
+      <div class="field">
+        <label>Jenis Barang</label>
+        <select id="mb-jenis">
+          <option value="milik_sendiri">Milik Kantin Sendiri</option>
+          <option value="titipan">Barang Titipan</option>
+        </select>
+      </div>
+      <div class="field hidden" id="mb-penitip-wrap">
+        <label>Penitip</label>
+        <select id="mb-penitip"></select>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Harga Beli/Titip (Rp)</label><input type="number" id="mb-harga-beli"></div>
+        <div class="field"><label>Harga Jual (Rp)</label><input type="number" id="mb-harga-jual"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Stok Awal</label><input type="number" id="mb-stok"></div>
+        <div class="field"><label>Stok Minimum (alert)</label><input type="number" id="mb-stok-min" placeholder="0"></div>
+      </div>
+      <button class="btn btn-primary" id="mb-save">Simpan Barang</button>
+      <button class="btn btn-ghost" id="mb-cancel" style="margin-top:8px;">Batal</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modal-penitip">
+    <div class="modal-sheet">
+      <h3 class="display">Tambah Penitip</h3>
+      <div class="field"><label>Nama Penitip</label><input type="text" id="mp-nama"></div>
+      <div class="field"><label>Kontak (No. HP)</label><input type="text" id="mp-kontak"></div>
+      <div class="field"><label>No. Rekening (opsional)</label><input type="text" id="mp-rekening"></div>
+      <div class="field"><label>Catatan</label><input type="text" id="mp-catatan"></div>
+      <button class="btn btn-primary" id="mp-save">Simpan Penitip</button>
+      <button class="btn btn-ghost" id="mp-cancel" style="margin-top:8px;">Batal</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="config.js"></script>
+<script src="db.js"></script>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
