@@ -85,7 +85,10 @@ const App = (function () {
     bindEvents();
     Sync.syncNow().catch(function () {});
     refreshQueueCount();
-    setInterval(refreshQueueCount, 8000);
+    setInterval(function () {
+      refreshQueueCount();
+      if (Sync.isOnline()) Sync.syncNow().catch(function () {}); // jaring pengaman: coba sinkron ulang item yang mungkin masih tertunda
+    }, 15000);
   }
 
   function showOnboardingConnError(msg) {
@@ -542,6 +545,11 @@ const App = (function () {
 
     if (!Sync.isOnline()) { toast('Sambungkan internet untuk setup awal pertama kali'); return Promise.resolve(); }
     if (!items.length) { toast('Tambahkan minimal satu barang'); return Promise.resolve(); }
+    const kodeSet = {};
+    for (let i = 0; i < items.length; i++) {
+      if (kodeSet[items[i].kode]) { toast('Kode barang "' + items[i].kode + '" dipakai lebih dari sekali, ubah dulu'); return Promise.resolve(); }
+      kodeSet[items[i].kode] = true;
+    }
     toast('Menyimpan setup awal...');
     return fetch(Sync.getApiUrl(), {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -696,8 +704,9 @@ const App = (function () {
       }).catch(function (err) { toast('Gagal: ' + err.message); });
     }
 
-    const tempId = 'PTP-TEMP-' + Date.now();
-    state.data.penitip.push({ id_penitip: tempId, nama: payload.nama, kontak: payload.kontak, no_rekening: payload.noRekening, catatan: payload.catatan, aktif: true });
+    const newId = 'PTP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    payload.id = newId;
+    state.data.penitip.push({ id_penitip: newId, nama: payload.nama, kontak: payload.kontak, no_rekening: payload.noRekening, catatan: payload.catatan, aktif: true });
     persistCache();
     return Sync.queueAction('addPenitip', payload).then(function () {
       toast('Penitip ditambahkan');
@@ -832,5 +841,14 @@ document.addEventListener('DOMContentLoaded', App.init);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+  // Saat versi Service Worker baru aktif menggantikan yang lama, reload sekali
+  // secara otomatis supaya file terbaru (app.js, index.html, dst) langsung
+  // terlihat tanpa Roy harus hapus cache manual.
+  let swRefreshed = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (swRefreshed) return;
+    swRefreshed = true;
+    window.location.reload();
   });
 }
