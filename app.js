@@ -580,23 +580,15 @@ const App = (function () {
       document.getElementById('mb-satuan').value = existing.satuan || 'pcs';
       document.getElementById('mb-jenis').value = existing.jenis || 'milik_sendiri';
       document.getElementById('mb-penitip-wrap').classList.toggle('hidden', existing.jenis !== 'titipan');
-      document.getElementById('mb-harga-beli-wrap').classList.toggle('hidden', existing.jenis === 'titipan');
       document.getElementById('mb-penitip').value = existing.id_penitip || '';
-      document.getElementById('mb-harga-beli').value = existing.harga_beli || '';
       document.getElementById('mb-harga-jual').value = existing.harga_jual || '';
-      document.getElementById('mb-stok').value = existing.stok_sistem || '';
-      document.getElementById('mb-stok').disabled = true;
-      document.getElementById('mb-stok-wrap-label').textContent = 'Stok Saat Ini';
-      document.getElementById('mb-stok-hint').textContent = 'Ubah stok lewat menu Restok atau Stok Opname, bukan di sini.';
       document.getElementById('mb-stok-min').value = existing.stok_minimum || '';
+      document.getElementById('mb-new-item-hint').classList.add('hidden');
     } else {
       editingBarangKode = null;
       title.textContent = 'Tambah Barang';
       kodeInput.disabled = false;
-      document.getElementById('mb-stok').disabled = false;
-      document.getElementById('mb-stok-wrap-label').textContent = 'Stok Awal';
-      document.getElementById('mb-stok-hint').textContent = '';
-      document.getElementById('mb-harga-beli-wrap').classList.remove('hidden');
+      document.getElementById('mb-new-item-hint').classList.remove('hidden');
       clearModalBarang();
     }
     document.getElementById('modal-barang').classList.remove('hidden');
@@ -608,7 +600,6 @@ const App = (function () {
       toast('Tambahkan data Penitip dulu sebelum membuat barang titipan');
       document.getElementById('mb-jenis').value = 'milik_sendiri';
       document.getElementById('mb-penitip-wrap').classList.add('hidden');
-      document.getElementById('mb-harga-beli-wrap').classList.remove('hidden');
       return Promise.resolve();
     }
     const payload = {
@@ -618,9 +609,7 @@ const App = (function () {
       satuan: document.getElementById('mb-satuan').value || 'pcs',
       jenis: jenis,
       idPenitip: jenis === 'titipan' ? document.getElementById('mb-penitip').value : '',
-      hargaBeli: jenis === 'titipan' ? 0 : (Number(document.getElementById('mb-harga-beli').value) || 0),
       hargaJual: Number(document.getElementById('mb-harga-jual').value) || 0,
-      stok: Number(document.getElementById('mb-stok').value) || 0,
       stokMinimum: Number(document.getElementById('mb-stok-min').value) || 0
     };
     if (!payload.kode || !payload.nama) { toast('Isi kode dan nama barang'); return Promise.resolve(); }
@@ -630,7 +619,7 @@ const App = (function () {
       const b = state.data.barang.find(function (x) { return x.kode_barang === editingBarangKode; });
       if (b) {
         b.nama_barang = payload.nama; b.kategori = payload.kategori; b.jenis = payload.jenis; b.id_penitip = payload.idPenitip;
-        b.harga_beli = payload.hargaBeli; b.harga_jual = payload.hargaJual; b.satuan = payload.satuan; b.stok_minimum = payload.stokMinimum;
+        b.harga_jual = payload.hargaJual; b.satuan = payload.satuan; b.stok_minimum = payload.stokMinimum;
       }
       persistCache();
       return Sync.queueAction('updateBarang', payload).then(function () {
@@ -640,19 +629,21 @@ const App = (function () {
     }
 
     if ((state.data.barang || []).some(function (b) { return b.kode_barang === payload.kode; })) { toast('Kode barang sudah dipakai'); return Promise.resolve(); }
+    payload.hargaBeli = 0; // diisi lewat Restok, bukan di sini
+    payload.stok = 0; // stok mulai dari 0, diisi lewat Restok
     state.data.barang.push({
       kode_barang: payload.kode, nama_barang: payload.nama, kategori: payload.kategori, jenis: payload.jenis,
-      id_penitip: payload.idPenitip, harga_beli: payload.hargaBeli, harga_jual: payload.hargaJual,
-      satuan: payload.satuan, stok_sistem: payload.stok, stok_minimum: payload.stokMinimum, aktif: true
+      id_penitip: payload.idPenitip, harga_beli: 0, harga_jual: payload.hargaJual,
+      satuan: payload.satuan, stok_sistem: 0, stok_minimum: payload.stokMinimum, aktif: true
     });
     persistCache();
     return Sync.queueAction('addBarang', payload).then(function () {
-      toast('Barang ditambahkan');
+      toast('Barang ditambahkan. Isi stok awal lewat menu Restok.');
       closeModalBarang(); clearModalBarang(); renderAll();
     }).catch(function (err) { toast('Gagal: ' + err.message); });
   }
   function clearModalBarang() {
-    ['mb-kode', 'mb-nama', 'mb-kategori', 'mb-harga-beli', 'mb-harga-jual', 'mb-stok', 'mb-stok-min'].forEach(function (id) { document.getElementById(id).value = ''; });
+    ['mb-kode', 'mb-nama', 'mb-kategori', 'mb-harga-jual', 'mb-stok-min'].forEach(function (id) { document.getElementById(id).value = ''; });
     document.getElementById('mb-satuan').value = 'pcs';
     document.getElementById('mb-jenis').value = 'milik_sendiri';
     document.getElementById('mb-penitip-wrap').classList.add('hidden');
@@ -789,7 +780,6 @@ const App = (function () {
         return;
       }
       document.getElementById('mb-penitip-wrap').classList.toggle('hidden', !isTitipan);
-      document.getElementById('mb-harga-beli-wrap').classList.toggle('hidden', isTitipan);
     });
     document.getElementById('mb-kode-auto').addEventListener('click', function () {
       const nama = document.getElementById('mb-nama').value.trim();
@@ -840,15 +830,16 @@ document.addEventListener('DOMContentLoaded', App.init);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
-  });
-  // Saat versi Service Worker baru aktif menggantikan yang lama, reload sekali
-  // secara otomatis supaya file terbaru (app.js, index.html, dst) langsung
-  // terlihat tanpa Roy harus hapus cache manual.
-  let swRefreshed = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () {
-    if (swRefreshed) return;
-    swRefreshed = true;
-    window.location.reload();
+    navigator.serviceWorker.register('sw.js').then(function () {
+      // Saat versi Service Worker baru aktif menggantikan yang lama, reload sekali
+      // secara otomatis supaya file terbaru (app.js, index.html, dst) langsung
+      // terlihat tanpa Roy harus hapus cache manual.
+      let swRefreshed = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (swRefreshed) return;
+        swRefreshed = true;
+        window.location.reload();
+      });
+    }).catch(function () {});
   });
 }

@@ -331,14 +331,9 @@
         <label>Penitip</label>
         <select id="mb-penitip"></select>
       </div>
-      <div class="row2">
-        <div class="field" id="mb-harga-beli-wrap"><label id="mb-harga-beli-label">Harga Beli (Rp)</label><input type="number" inputmode="numeric" id="mb-harga-beli"></div>
-        <div class="field"><label>Harga Jual (Rp)</label><input type="number" inputmode="numeric" id="mb-harga-jual"></div>
-      </div>
-      <div class="row2">
-        <div class="field"><label id="mb-stok-wrap-label">Stok Awal</label><input type="number" inputmode="numeric" id="mb-stok"><div class="hint" id="mb-stok-hint"></div></div>
-        <div class="field"><label>Stok Minimum (alert)</label><input type="number" inputmode="numeric" id="mb-stok-min" placeholder="0"></div>
-      </div>
+      <div class="field"><label>Harga Jual (Rp)</label><input type="number" inputmode="numeric" id="mb-harga-jual"></div>
+      <div class="field" id="mb-stokmin-wrap"><label>Stok Minimum (untuk peringatan stok menipis)</label><input type="number" inputmode="numeric" id="mb-stok-min" placeholder="0"></div>
+      <div class="hint" id="mb-new-item-hint" style="padding:0 2px 6px;">Stok & harga beli belum perlu diisi di sini — nanti diisi otomatis lewat menu <b>Restok</b> saat barang pertama kali masuk.</div>
       <button class="btn btn-primary" id="mb-save">Simpan Barang</button>
       <button class="btn btn-ghost" id="mb-cancel" style="margin-top:8px;">Batal</button>
     </div>
